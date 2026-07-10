@@ -1,0 +1,67 @@
+name: Build XIAO S3 INA3221 CH1
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - xiao_i2c_battery
+    paths:
+      - "variants/esp32s3/seeed_xiao_s3/**"
+      - "variants/esp32s3/seeed_xiao_s3_ina3221_ch1/**"
+      - "src/**"
+      - "platformio.ini"
+      - ".github/workflows/build_xiao_s3_ina3221_ch1.yml"
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - "variants/esp32s3/seeed_xiao_s3/**"
+      - "variants/esp32s3/seeed_xiao_s3_ina3221_ch1/**"
+      - "src/**"
+      - "platformio.ini"
+      - ".github/workflows/build_xiao_s3_ina3221_ch1.yml"
+
+permissions:
+  contents: read
+
+env:
+  PIO_ENV: seeed-xiao-s3-ina3221-ch1
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+          cache: pip
+
+      - name: Install PlatformIO
+        run: pip install -U platformio
+
+      - name: Build firmware
+        run: pio run -e "$PIO_ENV"
+
+      - name: Collect artifacts
+        if: always()
+        run: |
+          mkdir -p artifacts
+          cp -v ".pio/build/$PIO_ENV"/*.bin artifacts/ 2>/dev/null || true
+          cp -v ".pio/build/$PIO_ENV"/*.elf artifacts/ 2>/dev/null || true
+          cp -v ".pio/build/$PIO_ENV"/*.map artifacts/ 2>/dev/null || true
+          find artifacts -maxdepth 1 -type f -print
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: firmware-seeeds3-ina3221-ch1-${{ github.sha }}
+          path: artifacts
+          if-no-files-found: warn
+          retention-days: 14
