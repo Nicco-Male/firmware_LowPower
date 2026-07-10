@@ -46,7 +46,10 @@ jobs:
         run: pip install -U platformio
 
       - name: Build firmware
-        run: pio run -e "$PIO_ENV"
+        run: |
+          set -o pipefail
+          mkdir -p artifacts
+          pio run -e "$PIO_ENV" 2>&1 | tee artifacts/build.log
 
       - name: Collect artifacts
         if: always()
