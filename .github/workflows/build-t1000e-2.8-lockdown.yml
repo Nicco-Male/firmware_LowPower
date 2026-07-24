@@ -1,0 +1,96 @@
+name: Build T1000-E 2.8 Lockdown Debug
+
+on:
+  workflow_dispatch:
+    inputs:
+      firmware_ref:
+        description: Meshtastic firmware commit, tag, or branch to build
+        required: true
+        type: string
+        default: 5ded0ec8c5e4b8c7676571f2e28167afe537861d
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - .github/workflows/build-t1000e-2.8-lockdown.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: T1000-E lockdown debug
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Meshtastic firmware
+        uses: actions/checkout@v7
+        with:
+          repository: meshtastic/firmware
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.firmware_ref || '5ded0ec8c5e4b8c7676571f2e28167afe537861d' }}
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Enable safe Lockdown build flags
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("variants/nrf52840/tracker-t1000-e/platformio.ini")
+          text = path.read_text(encoding="utf-8")
+          anchor = "  -DMESHTASTIC_EXCLUDE_WIFI=1\n"
+          flags = (
+              "  -DMESHTASTIC_ENABLE_LOCKDOWN=1\n"
+              "  -DMESHTASTIC_LOCKDOWN_DEBUG=1\n"
+          )
+
+          if "-DMESHTASTIC_ENABLE_LOCKDOWN=1" not in text:
+              if anchor not in text:
+                  raise SystemExit(f"Expected build_flags anchor not found in {path}")
+              text = text.replace(anchor, anchor + flags, 1)
+              path.write_text(text, encoding="utf-8")
+
+          print(path.read_text(encoding="utf-8"))
+          PY
+
+      - name: Build tracker-t1000-e
+        uses: meshtastic/gh-action-firmware@main
+        with:
+          pio_platform: nrf52840
+          pio_env: tracker-t1000-e
+          pio_target: build
+          meshtastic_branch: develop
+
+      - name: Add build information and checksums
+        shell: bash
+        run: |
+          test -d release
+          SOURCE_COMMIT="$(git rev-parse HEAD)"
+          cat > release/LOCKDOWN_BUILD.txt <<EOF
+          Target: tracker-t1000-e
+          Source repository: meshtastic/firmware
+          Source commit: ${SOURCE_COMMIT}
+          Build flags:
+            -DMESHTASTIC_ENABLE_LOCKDOWN=1
+            -DMESHTASTIC_LOCKDOWN_DEBUG=1
+
+          This is the safe test build: APPROTECT is deliberately disabled.
+          EOF
+
+          (
+            cd release
+            find . -maxdepth 1 -type f ! -name SHA256SUMS.txt ! -name '.*' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum
+          ) > release/SHA256SUMS.txt
+
+          find release -maxdepth 2 -type f -printf '%P\n' | sort
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: t1000-e-2.8-lockdown-debug
+          path: release/
+          if-no-files-found: error
+          retention-days: 30
