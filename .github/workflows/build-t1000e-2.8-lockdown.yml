@@ -144,3 +144,5 @@ jobs:
           path: release/
           if-no-files-found: error
           retention-days: 30
+
+# Verification trigger for the patched iOS provisioning build.
