@@ -13,6 +13,11 @@ on:
       - develop
     paths:
       - .github/workflows/build-t1000e-2.8-lockdown.yml
+  push:
+    branches:
+      - develop
+    paths:
+      - .github/workflows/build-t1000e-2.8-lockdown.yml
 
 permissions:
   contents: read
