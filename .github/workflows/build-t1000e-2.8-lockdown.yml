@@ -1,4 +1,4 @@
-name: Build T1000-E 2.8 Lockdown Debug
+name: Build T1000-E 2.8 Lockdown iOS Provision
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   build:
-    name: T1000-E lockdown debug
+    name: T1000-E lockdown iOS provision
     runs-on: ubuntu-latest
 
     steps:
@@ -54,6 +54,49 @@ jobs:
           print(path.read_text(encoding="utf-8"))
           PY
 
+      - name: Make unprovisioned Lockdown visible to iOS
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/mesh/PhoneAPI.cpp")
+          text = path.read_text(encoding="utf-8")
+          start_marker = "#if defined(MESHTASTIC_ENCRYPTED_STORAGE) && defined(MESHTASTIC_PHONEAPI_ACCESS_CONTROL)\n"
+          end_marker = "#endif\n\n    // Allow subclasses to know we've entered steady-state"
+
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit(f"Expected Lockdown status block not found in {path}")
+
+          replacement = '''#if defined(MESHTASTIC_ENCRYPTED_STORAGE) && defined(MESHTASTIC_PHONEAPI_ACCESS_CONTROL)
+    // The stock 2.8 nightly reports DISABLED before first provisioning. The
+    // current iOS client intentionally hides DISABLED, so it never offers the
+    // Set Passphrase screen. This test build reports NEEDS_PROVISION instead,
+    // allowing the existing iOS provisioning UI to initialize Lockdown.
+    if (!EncryptedStorage::isProvisioned()) {
+        queueLockdownStatus(meshtastic_LockdownStatus_State_NEEDS_PROVISION, "", 0, 0, 0);
+        LOG_INFO("PhoneAPI: NEEDS_PROVISION sent to client");
+    } else if (!getAdminAuthorized()) {
+        if (!EncryptedStorage::isUnlocked()) {
+            queueLockdownStatus(meshtastic_LockdownStatus_State_LOCKED, EncryptedStorage::getLockReason(), 0, 0, 0);
+            LOG_INFO("PhoneAPI: LOCKED (%s) sent to client", EncryptedStorage::getLockReason());
+        } else {
+            queueLockdownStatus(meshtastic_LockdownStatus_State_LOCKED, "needs_auth", 0, 0, 0);
+            LOG_INFO("PhoneAPI: LOCKED (needs_auth) sent to client");
+        }
+    }
+#endif
+'''
+
+          text = text[:start] + replacement + text[end + len("#endif\n"):]
+          path.write_text(text, encoding="utf-8")
+
+          if "PhoneAPI: NEEDS_PROVISION sent to client" not in path.read_text(encoding="utf-8"):
+              raise SystemExit("Lockdown provisioning patch verification failed")
+          PY
+
       - name: Build tracker-t1000-e
         uses: meshtastic/gh-action-firmware@main
         with:
@@ -74,6 +117,8 @@ jobs:
           Build flags:
             -DMESHTASTIC_ENABLE_LOCKDOWN=1
             -DMESHTASTIC_LOCKDOWN_DEBUG=1
+          Firmware patch:
+            Unprovisioned devices report NEEDS_PROVISION to the iOS client.
 
           This is the safe test build: APPROTECT is deliberately disabled.
           EOF
@@ -90,7 +135,7 @@ jobs:
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v7
         with:
-          name: t1000-e-2.8-lockdown-debug
+          name: t1000-e-2.8-lockdown-ios-provision
           path: release/
           if-no-files-found: error
           retention-days: 30
